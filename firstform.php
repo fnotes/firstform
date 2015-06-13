@@ -89,7 +89,7 @@ created timestamp
 
 			if( wp_verify_nonce($_POST['_ffnonce'], 'update-shortcode') ){
 
-				$this->options['base'] = $this->gPOST('base');
+				$this->options['base'] = wp_kses_post( $this->gPOST('base') );
 				update_option($this->name, $this->options);
 				exit;
 
@@ -187,7 +187,7 @@ created timestamp
 
 					}elseif( isset($post[ $name ]) ){
 
-						return $this->n2br( esc_html(stripslashes($post[ $name ])) );
+						return esc_html(stripslashes($post[ $name ]));
 					}else{
 						return '';
 					}
@@ -206,7 +206,7 @@ created timestamp
 					$val = str_replace('*', '[]', $val);
 				}
 
-				$attr .= ' '.$key.'="'.$val.'"';
+				$attr .= ' '.preg_replace("/[^\w\-]/", "", $key).'="'.esc_attr($val).'"';
 			}
 
 			$label = isset($atts['label']) ? $atts['label']: '';
@@ -218,11 +218,11 @@ created timestamp
 				case 'radio':
 					$ck = isset($_POST[ $atts['name'] ]) ? $_POST[ $atts['name'] ]: '';
 					$v = isset($atts['value']) ? $atts['value']: '';
-					return '<label><input type="radio"'.$attr.($ck==$v?' checked="checked"':'').'>'.$label.'</label>';
+					return '<label><input type="radio"'.$attr.($ck==$v?' checked="checked"':'').'>'.esc_html($label).'</label>';
 				case 'checkbox':case 'check':
 					$ck = isset($_POST[ $atts['name'] ]) ? $_POST[ $atts['name'] ]: '';
 					$v = isset($atts['value']) ? $atts['value']: '';
-					return '<label><input type="checkbox"'.$attr.(strpos(':'.$ck.':',':'.$v.':')!==false?' checked="checked"':'').'>'.$label.'</label>';
+					return '<label><input type="checkbox"'.$attr.(strpos(':'.$ck.':',':'.$v.':')!==false?' checked="checked"':'').'>'.esc_html($label).'</label>';
 				case 'select':
 					$html = '<select'.$attr.'>';
 					$ops = isset($atts['options']) ? explode(':', $atts['options']): array();
@@ -230,7 +230,7 @@ created timestamp
 					foreach($ops as $val){
 						list($val, $sel) = explode(',', $val);
 						if( $sel=='' ) $sel = $val;
-						$html .= '<option value="'.$val.'"'.($sl==$val?' selected="selected"':'').'>'.$sel.'</option>';
+						$html .= '<option value="'.esc_attr($val).'"'.($sl==$val?' selected="selected"':'').'>'.esc_html($sel).'</option>';
 					}
 					return $html.'</select>';
 				case 'textarea':
@@ -261,15 +261,12 @@ created timestamp
 	}
 
 	function validate(){
+		global $locale;
 
 		$caution = array();
 		foreach($_POST as $key => $val){
 
 			if( is_array($val) ) $val = implode(':', $val);
-
-			$val = $this->rn2n($val);
-			$val = htmlspecialchars($val, ENT_QUOTES);
-			$_POST[ sanitize_key($key) ] = sanitize_text_field($val);
 
 			$v = $this->getSSN($key);
 			if( empty($v['type']) ) continue;
@@ -284,10 +281,13 @@ created timestamp
 					break;
 
 				case 'zip':
-					if( !preg_match("/^\d{3}\-?\d{4}$/", $val) ) $caution[] = $v['message'];
+					if( ($locale=='ja' && !preg_match("/^\d{3}\-?\d{4}$/", $val)) || ($locale=='en_US' && !preg_match("/^\d{5}\-?\d{4}?$/", $val)) || 
+						preg_match("/[^\d\-]/", $val) ){
+						$caution[] = $v['message'];
+					}
 					break;
 				case 'tel':
-					if( !preg_match("/^0\d{1,4}\-?\d{1,4}\-?\d{4}$/", $val) ) $caution[] = $v['message'];
+					if( preg_match("/[^\d\-]/", $val) ) $caution[] = $v['message'];
 					break;
 
 				case 'numeric':
@@ -345,9 +345,7 @@ created timestamp
 				if( $key=='_ffnonce' ) continue;
 
 				$key = preg_replace("/[\t=]/", '', $key);
-				$val = htmlspecialchars_decode($val, ENT_QUOTES);
 				$val = str_replace("\t", '    ', $val);
-				$val = str_replace("#n#", "\n", $val);
 
 				$txt .= $key.'='.$val."\t";
 				$items .= $val."\n";
@@ -366,14 +364,14 @@ created timestamp
 			if( $email!='' && $user_sub!='' ){
 
 				$headers = 'From: "'.$this->gOPS('admin_name').'" <'.$email.">\n";
-				$body = str_replace('#FORM_CONTENT#', $items, $this->gOPS('user_body'));
+				$body = str_replace('#FORM_CONTENT#', stripcslashes($items), $this->gOPS('user_body'));
 				wp_mail($email, $user_sub, $body, $headers);
 			}
 			if( $admin_mail!='' && $admin_sub!='' ){
 
 				if( $email=='' ) $email = $admin_mail;
 				$headers = 'From: <'.$email.">\n";
-				$body = str_replace('#FORM_CONTENT#', $items, $this->gOPS('admin_body'));
+				$body = str_replace('#FORM_CONTENT#', stripcslashes($items), $this->gOPS('admin_body'));
 				wp_mail($admin_mail, $admin_sub, $body, $headers, $attach);
 			}
 		}
@@ -487,15 +485,15 @@ created timestamp
 		$msg = 0;
 		if( $_SERVER['REQUEST_METHOD']=='POST' && check_admin_referer('update-settings') ){
 
-			$this->options['attach_path'] = $this->gPOST('attach_path');
-			$this->options['complete_url'] = $this->gPOST('complete_url');
-			$this->options['complete_body'] = $this->gPOST('complete_body');
-			$this->options['admin_mail'] = $this->gPOST('admin_mail');
-			$this->options['admin_name'] = $this->gPOST('admin_name');
-			$this->options['user_sub'] = $this->gPOST('user_sub');
-			$this->options['user_body'] = $this->gPOST('user_body');
-			$this->options['admin_sub'] = $this->gPOST('admin_sub');
-			$this->options['admin_body'] = $this->gPOST('admin_body');
+			$this->options['attach_path'] = preg_replace("/[^\w_\.\-\/]/", '', $this->gPOST('attach_path'));
+			$this->options['complete_url'] = esc_url( $this->gPOST('complete_url') );
+			$this->options['complete_body'] = wp_kses_post( $this->gPOST('complete_body') );
+			$this->options['admin_mail'] = sanitize_email( $this->gPOST('admin_mail') );
+			$this->options['admin_name'] = sanitize_text_field( $this->gPOST('admin_name') );
+			$this->options['user_sub'] = sanitize_text_field( $this->gPOST('user_sub') );
+			$this->options['user_body'] = wp_filter_post_kses( $this->gPOST('user_body') );
+			$this->options['admin_sub'] = sanitize_text_field( $this->gPOST('admin_sub') );
+			$this->options['admin_body'] = wp_filter_post_kses( $this->gPOST('admin_body') );
 
 			update_option($this->name, $this->options);
 			$msg = 1;
@@ -718,8 +716,13 @@ created timestamp
 			}
 		}
 
-		$path = dirname( plugins_url() ).'/uploads/';
-		$dir = dirname(dirname( plugin_dir_path(__FILE__) )).'/uploads/';
+		$dir = $this->gOPS('attach_path');
+		$path = str_replace(ABSPATH, '', $dir);
+		if( $dir=='' ){
+			$dir = wp_upload_dir();
+			$path = $dir['baseurl'].'/';
+			$dir = $dir['path'].'/';
+		}
 
 		$paged = preg_replace("/[^\d]/", "", $_GET['paged']);
 		if($paged == ''){
@@ -772,7 +775,7 @@ created timestamp
 </div>
 <?php
 
-		$big = 99999;
+		$big = 9999;
 		echo paginate_links( array(
 			'base' => str_replace($big, '%#%', esc_url( get_pagenum_link( $big ) ) ),
 			'format' => '?paged=%#%',
@@ -781,30 +784,18 @@ created timestamp
 		) );
 	}
 
-	function n2br($n){
+	function gPOST($key){
 
-		return str_replace("#n#", "<br>", $n);
-	}
-	function rn2n($rn){
-
-		$rn = str_replace("\r\n", "\n", $rn);
-		$rn = str_replace("\r", "\n", $rn);
-		return str_replace("\n", "#n#", $rn);
+		return isset($_POST[ $key ]) ? $_POST[ $key ]: '';
 	}
 
 	function gOPS($key){
 
 		return isset($this->options[ $key ]) ? stripslashes($this->options[ $key ]): '';
 	}
-
 	function eOPS($key){
 
 		echo isset($this->options[ $key ]) ? esc_attr(stripslashes($this->options[ $key ])) : '';
-	}
-
-	function gPOST($key){
-
-		return isset($_POST[ $key ]) ? $_POST[ $key ]: '';
 	}
 
 	function setSSN($vals=''){
