@@ -16,6 +16,7 @@ class FirstForm {
 	var $options = array();
 	var $table;
 	var $id;
+	var $dir;
 
 	function __construct(){
 		global $wpdb;
@@ -25,6 +26,12 @@ class FirstForm {
 		$this->table = $wpdb->prefix . $this->name;
 
 		$this->options = get_option($this->name);
+
+		$this->dir = $this->gOPS('attach_path');
+		if( $this->dir=='' ){
+			$dir = wp_upload_dir();
+			$this->dir = $dir['path'].'/';
+		}
 
 		register_activation_hook(__FILE__, array($this, 'install'));
 		register_uninstall_hook(__FILE__, array(&$this, 'uninstall'));
@@ -75,6 +82,7 @@ created timestamp
 	}
 
 	function init(){
+		global $locale;
 
 		$this->id = $_SERVER['REQUEST_URI'];
 
@@ -100,9 +108,50 @@ created timestamp
 			}elseif( wp_verify_nonce($_POST['_ffnonce'], 'complete') ){
 
 				$this->complete();
+
+			}elseif( isset($_POST['fname']) && wp_verify_nonce($_POST['_ffnonce'], 'inquiry') ){
+
+				$file = preg_replace('/[^\w\.]/', '', $this->gPOST('fname'));
+				if( file_exists($this->dir.$file) ){
+					$this->setSSN( array('phase'=>'download','fname'=>$this->dir.$file) );
+
+					echo '{"success":"ok"}';
+
+				}else{
+					echo '{"error":"file not found"}';
+				}
+
+				exit;
 			}
 
 		}else{
+
+			if( $this->getSSN('phase')=='download' ){
+
+				$file = $this->getSSN('fname');
+
+				header('Content-Type: application/octet-stream');
+				header('Content-Disposition: attachment; filename="'.basename($file).'"');
+				header('Content-Length: '.filesize($file));
+				readfile($file);
+
+				$this->setSSN();
+				exit;
+			}
+			if( strpos($this->id, $this->name.'.json')!==false ){
+
+				$dir = dirname(__FILE__).'/js/languages/';
+				$json = $locale.'.json';
+				if( file_exists($dir.$json) ){
+					echo file_get_contents($dir.$json);
+
+				}else{
+					echo file_get_contents($dir.'en.json');
+				}
+
+				exit;
+			}
+
 			$this->setSSN();
 		}
 
@@ -318,14 +367,10 @@ created timestamp
 	function complete(){
 		global $wpdb;
 
+		$this->autoDel();
+
 		$tomail = $this->getSSN('tomail');
 		$files = $email = $txt = $items = '';
-
-		$dir = $this->gOPS('attach_path');
-		if( $dir=='' ){
-			$dir = wp_upload_dir();
-			$dir = $dir['path'].'/';
-		}
 
 		$attach = array();
 		$post = $this->getSSN('post');
@@ -339,7 +384,10 @@ created timestamp
 				}elseif( $key=='_upfiles' ){
 
 					$files = $val;
-					$attach[] = $dir.$val;
+					foreach(explode(':',$val) as $f){
+						rename($this->dir.$f.'.tmp', $this->dir.$f);
+						$attach[] = $this->dir.$f;
+					}
 					continue;
 				}
 				if( $key=='_ffnonce' ) continue;
@@ -390,12 +438,6 @@ created timestamp
 	function upload(){
 
 		$ups = array();
-		$dir = $this->gOPS('attach_path');
-		if( $dir=='' ){
-			$dir = wp_upload_dir();
-			$dir = $dir['path'].'/';
-		}
-
 		foreach($_FILES as $key => $files){
 			if( is_array($files['tmp_name']) ){
 
@@ -409,8 +451,8 @@ created timestamp
 					if( $v['size']!='' && $v['size'] < filesize($file) ){
 						return $v['size_message'];
 					}
-					$ups[] = $f = $this->mkName($ext, $dir);
-					move_uploaded_file($file, $dir.$f);
+					$ups[] = $f = $this->mkName($ext);
+					move_uploaded_file($file, $this->dir.$f.'.tmp');
 				}
 
 			}else{
@@ -423,8 +465,8 @@ created timestamp
 				if( $v['size']!='' && $v['size'] < filesize($files['tmp_name']) ){
 					return $v['size_message'];
 				}
-				$ups[] = $f = $this->mkName($ext, $dir);
-				move_uploaded_file($files['tmp_name'], $dir.$f);
+				$ups[] = $f = $this->mkName($ext);
+				move_uploaded_file($files['tmp_name'], $this->dir.$f.'.tmp');
 			}
 		}
 
@@ -433,15 +475,15 @@ created timestamp
 		return false;
 	}
 
-	function mkName($ext, $dir){
+	function mkName($ext){
 
 		$time = date("YmdHis");
 		$fname = $time.$ext;
 
-		if( file_exists($dir.$fname) ){
+		if( file_exists($this->dir.$fname) ){
 			for($i=1;$i<20;$i++){
 
-				if( !file_exists($dir.$time.'-'.$i.$ext) ){
+				if( !file_exists($this->dir.$time.'-'.$i.$ext) ){
 					$fname = $time.'-'.$i.$ext;
 					break;
 				}
@@ -696,7 +738,7 @@ created timestamp
 		global $wpdb;
 
 		$msg = 0;
-		if( $_SERVER['REQUEST_METHOD']=='POST' && check_admin_referer('delete-inquiry') ){
+		if( $_SERVER['REQUEST_METHOD']=='POST' && check_admin_referer('inquiry') ){
 
 			$ids = $this->gPOST('delId');
 			if( is_array($ids) ){
@@ -710,18 +752,20 @@ created timestamp
 				}
 
 				if( count($del) ){
-					$wpdb->query('DELETE FROM '.$this->table.' WHERE '.implode(' OR ', $del));
+
+					$wh = implode(' OR ', $del);
+
+					$rows = $wpdb->get_results('SELECT files FROM '.$this->table.' WHERE '.$wh, ARRAY_A);
+					foreach($rows as $row){
+						foreach(explode(':',$row['files']) as $file){
+							if( file_exists($this->dir.$file) ) unlink( $this->dir.$file );
+						}
+					}
+
+					$wpdb->query('DELETE FROM '.$this->table.' WHERE '.$wh);
 					$msg = 1;
 				}
 			}
-		}
-
-		$dir = $this->gOPS('attach_path');
-		$path = str_replace(ABSPATH, '', $dir);
-		if( $dir=='' ){
-			$dir = wp_upload_dir();
-			$path = $dir['baseurl'].'/';
-			$dir = $dir['path'].'/';
 		}
 
 		$paged = preg_replace("/[^\d]/", "", $_GET['paged']);
@@ -755,7 +799,7 @@ created timestamp
 	<td><?php echo str_replace("\t", '<br>', esc_html(stripslashes($row['txt']))); ?></td>
 	<td>
 	<?php foreach(explode(':',$row['files']) as $file): ?>
-		<?php if( $file!='' && file_exists($dir.$file) ): ?><a href="<?php echo $path.esc_attr($file); ?>"><?php _e('file', $this->name); ?></a><?php endif; ?>
+		<?php if( $file!='' && file_exists($this->dir.$file) ): ?><a href="#" class="fDL" id="<?php echo str_replace('.','-',$file); ?>"><?php _e('file', $this->name); ?></a><?php endif; ?>
 	<?php endforeach; ?>
 	</td>
 	<td><?php echo esc_html($row['ip']); ?></td>
@@ -770,18 +814,32 @@ created timestamp
 <p class="submit">
 	<input type="submit" class="button button-primary" value="<?php _e('delete', $this->name); ?>">
 </p>
-<?php wp_nonce_field('delete-inquiry'); ?>
+<?php wp_nonce_field('inquiry'); ?>
 </form>
 </div>
 <?php
 
-		$big = 9999;
+		$big = 99999;
 		echo paginate_links( array(
 			'base' => str_replace($big, '%#%', esc_url( get_pagenum_link( $big ) ) ),
 			'format' => '?paged=%#%',
 			'current' => max( 1, $paged ),
 			'total' => ($all%10==0)?intval($all/10):intval($all/10)+1
 		) );
+	}
+
+	function autoDel(){
+
+		if( is_dir($this->dir) ){
+			$dh = opendir($this->dir);
+			while( $file = readdir($dh) ){
+				if( $file=='.' || $file=='..' || !preg_match("/\.tmp$/", $file) ) continue;
+
+				$time = preg_replace("/^(\d+)\..+$/", "$1", $file);
+				if( strtotime($time) < time()-1800 ) unlink($this->dir.$file);
+			}
+			closedir($dh);
+		}
 	}
 
 	function gPOST($key){
@@ -815,9 +873,11 @@ created timestamp
 		return isset($_SESSION[ $this->name ][ $this->id ][ $key ]) ? $_SESSION[ $this->name ][ $this->id ][ $key ]: '';
 	}
 
-	function scripts(){
+	function scripts($hook_suffix){
 
-		wp_enqueue_script($this->name, plugins_url($this->name . '/js/items.js'), array('jquery'), '1.0', true);
+		if( $hook_suffix==$this->name.'_page_shortcode' || $hook_suffix==$this->name.'_page_inquiry' ){
+			wp_enqueue_script($this->name, plugins_url($this->name . '/js/items.js'), array('jquery'), '1.0', true);
+		}
 	}
 
 }

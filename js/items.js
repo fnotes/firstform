@@ -1,7 +1,23 @@
 (function($){
 
-	var message,locale='en';
-	$.getJSON('../wp-content/plugins/firstform/js/languages/'+locale+'.json', function(json){
+	$('.fDL').on('click', function(){
+
+		$.ajax({
+			type: 'POST',
+			data: 'fname='+$(this).attr('id').replace("-",".")+'&_ffnonce='+$('#_wpnonce').val(),
+			success: function(json){
+				var j =JSON.parse(json);
+				if( j.success=='ok' ){
+					location.reload();
+				}
+			}
+		});
+	});
+
+	if( location.href.indexOf('shortcode') < 0 ) return false;
+
+	var message;
+	$.getJSON('?firstform.json', function(json){
 		message = json;
 	});
 
@@ -71,9 +87,7 @@
 				break;
 
 		}
-
 	});
-
 	$('#addcode').on('click', function(){
 		var o=$('#base'),t=$('#code').val();
 
@@ -90,7 +104,6 @@
 			o.get(0).setSelectionRange(np, np);
 		}
 	});
-
 	$('#base').on('blur', function(){
 
 		$.ajax({
@@ -99,6 +112,5 @@
 			success: function(){}
 		});
 	});
-
 
 })(jQuery);
