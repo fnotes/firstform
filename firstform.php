@@ -316,6 +316,7 @@ created timestamp
 		foreach($_POST as $key => $val){
 
 			if( is_array($val) ) $val = implode(':', $val);
+			$_POST[ $key ] = wp_kses_post( $val );
 
 			$v = $this->getSSN($key);
 			if( empty($v['type']) ) continue;
@@ -392,7 +393,7 @@ created timestamp
 				}
 				if( $key=='_ffnonce' ) continue;
 
-				$key = preg_replace("/[\t=]/", '', $key);
+				$key = preg_replace("/[\t=]/", '', sanitize_key($key));
 				$val = str_replace("\t", '    ', $val);
 
 				$txt .= $key.'='.$val."\t";
