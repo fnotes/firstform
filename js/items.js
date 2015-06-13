@@ -35,10 +35,10 @@
 				o.val('[fform type=text name="'+n+'"'+op+']');
 				break;
 			case 'radio':
-				o.val('[fform type=radio name="'+n+'"'+op+']');
+				o.val('[fform type=radio name="'+n+'" value="" label=""'+op+']');
 				break;
 			case 'checkbox':
-				o.val('[fform type=checkbox name="'+n+'"'+op+']');
+				o.val('[fform type=checkbox name="'+n+'" value="" label=""'+op+']');
 				break;
 			case 'select':
 				o.val('[fform type=select name="'+n+'" options="'+message.select+'"'+op+']');
@@ -48,7 +48,7 @@
 				break;
 			case 'file':
 				$('#base').val( $('#base').val().replace(/fform_area]/g, 'fform_multi_area]') );
-				if( n=='' ) n='file[]';
+				if( n=='' ) n='file*';
 				o.val('[fform type=file name="'+n+'" ext=".jpeg,.jpg,.png,.gif" ext_message="'+message.ext+'" size=1048576 size_message="'+message.size+'"]');
 				break;
 			case 'submit':

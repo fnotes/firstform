@@ -173,11 +173,21 @@ created timestamp
 
 			$post = $this->getSSN('post');
 			$name = isset($atts['name']) ? $atts['name']: '';
+
 			if( $post!='' ){
 				if( !in_array($atts['type'], array('reset','button','submit','hidden')) ){
 
-					if( isset($post[ $name ]) ){
-						return esc_html($post[ $name ]);
+					if( strpos($name, '*')!==false ){
+						$name = str_replace('*', '', $name);
+						if( isset($post[ $name ]) && strpos($post[ $name ], $atts['value'])!==false ){
+							return $atts['value'];
+						}else{
+							return '';
+						}
+
+					}elseif( isset($post[ $name ]) ){
+
+						return $this->n2br( esc_html(stripslashes($post[ $name ])) );
 					}else{
 						return '';
 					}
@@ -192,6 +202,9 @@ created timestamp
 			$attr = '';
 			foreach($atts as $key => $val){
 				if( $key=='type' || $key=='options' || $key=='message' || $key=='label' ) continue;
+				if( $key=='name' && strpos($val, '*')!==false ){
+					$val = str_replace('*', '[]', $val);
+				}
 
 				$attr .= ' '.$key.'="'.$val.'"';
 			}
@@ -200,7 +213,7 @@ created timestamp
 
 			switch($atts['type']){
 				case 'text':
-					if( isset($_POST[ $atts['name'] ]) ) $attr .= ' value="'.esc_attr($_POST[ $atts['name'] ]).'"';
+					if( isset($_POST[ $atts['name'] ]) ) $attr .= ' value="'.esc_attr(stripslashes($_POST[ $atts['name'] ])).'"';
 					return '<input type="text"'.$attr.'>';
 				case 'radio':
 					$ck = isset($_POST[ $atts['name'] ]) ? $_POST[ $atts['name'] ]: '';
@@ -209,7 +222,7 @@ created timestamp
 				case 'checkbox':case 'check':
 					$ck = isset($_POST[ $atts['name'] ]) ? $_POST[ $atts['name'] ]: '';
 					$v = isset($atts['value']) ? $atts['value']: '';
-					return '<label><input type="checkbox"'.$attr.($ck==$v?' checked="checked"':'').'>'.$label.'</label>';
+					return '<label><input type="checkbox"'.$attr.(strpos(':'.$ck.':',':'.$v.':')!==false?' checked="checked"':'').'>'.$label.'</label>';
 				case 'select':
 					$html = '<select'.$attr.'>';
 					$ops = isset($atts['options']) ? explode(':', $atts['options']): array();
@@ -221,7 +234,7 @@ created timestamp
 					}
 					return $html.'</select>';
 				case 'textarea':
-					$v = isset($_POST[ $atts['name'] ]) ? $_POST[ $atts['name'] ]: '';
+					$v = isset($_POST[ $atts['name'] ]) ? stripslashes($_POST[ $atts['name'] ]): '';
 					return '<textarea'.$attr.'>'.esc_textarea($v).'</textarea>';
 				case 'file':
 					if( isset($atts['name']) ) $this->setSSN( array(
@@ -251,6 +264,12 @@ created timestamp
 
 		$caution = array();
 		foreach($_POST as $key => $val){
+
+			if( is_array($val) ) $val = implode(':', $val);
+
+			$val = $this->rn2n($val);
+			$val = htmlspecialchars($val, ENT_QUOTES);
+			$_POST[ sanitize_key($key) ] = sanitize_text_field($val);
 
 			$v = $this->getSSN($key);
 			if( empty($v['type']) ) continue;
@@ -303,7 +322,10 @@ created timestamp
 		$files = $email = $txt = $items = '';
 
 		$dir = $this->gOPS('attach_path');
-		if( $dir=='' ) $dir = ABSPATH.'/wp-content/uploads/';
+		if( $dir=='' ){
+			$dir = wp_upload_dir();
+			$dir = $dir['path'].'/';
+		}
 
 		$attach = array();
 		$post = $this->getSSN('post');
@@ -323,12 +345,15 @@ created timestamp
 				if( $key=='_ffnonce' ) continue;
 
 				$key = preg_replace("/[\t=]/", '', $key);
+				$val = htmlspecialchars_decode($val, ENT_QUOTES);
 				$val = str_replace("\t", '    ', $val);
+				$val = str_replace("#n#", "\n", $val);
 
 				$txt .= $key.'='.$val."\t";
 				$items .= $val."\n";
 			}
 
+			/* files = time.ext:time.ext */
 			$wpdb->query($wpdb->prepare(
 				"INSERT INTO ".$this->table." (permalink,email,txt,files,ip) VALUES (%s,%s,%s,%s,%s)",
 				$this->id, $email, rtrim($txt, "\t"), $files, $_SERVER['REMOTE_ADDR']
@@ -368,7 +393,10 @@ created timestamp
 
 		$ups = array();
 		$dir = $this->gOPS('attach_path');
-		if( $dir=='' ) $dir = ABSPATH.'/wp-content/uploads/';
+		if( $dir=='' ){
+			$dir = wp_upload_dir();
+			$dir = $dir['path'].'/';
+		}
 
 		foreach($_FILES as $key => $files){
 			if( is_array($files['tmp_name']) ){
@@ -637,6 +665,9 @@ created timestamp
 		<?php _e('options="" is set of choices, :separated choices, ,separated value,display (optional)', $this->name); ?><br>
 
 		<br>
+		<?php _e('name="name*" is arranging a plurality of the same item', $this->name); ?><br>
+
+		<br>
 		<?php _e('ext=".jpg,.png,.gif" is file extension limit', $this->name); ?><br>
 		<?php _e('ext_message="" is warning statement', $this->name); ?><br>
 		<?php _e('size=number is file size limit', $this->name); ?><br>
@@ -718,7 +749,7 @@ created timestamp
 	<td><?php echo esc_html($row['id']); ?></td>
 	<td><?php echo esc_html($row['permalink']); ?></td>
 	<td><?php echo esc_html($row['email']); ?></td>
-	<td><?php echo str_replace("\t", '<br>', esc_html($row['txt'])); ?></td>
+	<td><?php echo str_replace("\t", '<br>', esc_html(stripslashes($row['txt']))); ?></td>
 	<td>
 	<?php foreach(explode(':',$row['files']) as $file): ?>
 		<?php if( $file!='' && file_exists($dir.$file) ): ?><a href="<?php echo $path.esc_attr($file); ?>"><?php _e('file', $this->name); ?></a><?php endif; ?>
@@ -748,6 +779,17 @@ created timestamp
 			'current' => max( 1, $paged ),
 			'total' => ($all%10==0)?intval($all/10):intval($all/10)+1
 		) );
+	}
+
+	function n2br($n){
+
+		return str_replace("#n#", "<br>", $n);
+	}
+	function rn2n($rn){
+
+		$rn = str_replace("\r\n", "\n", $rn);
+		$rn = str_replace("\r", "\n", $rn);
+		return str_replace("\n", "#n#", $rn);
 	}
 
 	function gOPS($key){
